@@ -1,8 +1,7 @@
-use quick_xml::events::Event;
-use quick_xml::reader::Reader;
-// use regex::Regex;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use chrono_tz::{Tz, US::Pacific};
+use quick_xml::events::Event;
+use quick_xml::reader::Reader;
 
 use base64::decode;
 
@@ -29,63 +28,54 @@ fn try_event_name(event: Event) -> Option<String> {
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
 
-    // println!("args: {:#?}", args);
-    if args.len() > 2 {
-        panic!("Only takes one argument, number of days back to process images");
-    }
     let mut days_back: i64 = 9999;
-    if args.len() == 2 {
-        days_back = args[1].parse().unwrap();
+
+    if args.len() > 3 {
+        panic!("Only takes two arguments, XML file and (optional) number of days back to process images");
     }
+
+    if args.len() < 2 {
+        panic!("Takes one or two arguments, XML file and (optional) number of days back to process images");
+    }
+
+    let xml_filename = args[1].clone();
+
+    if args.len() == 3 {
+        days_back = args[2].parse().unwrap();
+    }
+
     let date_since = Utc::now() - Duration::days(days_back);
 
+    // Used to track whether we're currently processing an MMS, and if so what the timestamp on it is
     let mut state = State::Between;
-    // an unem with whether we're in an mms or not, and the date
 
     println!("reading xml file to string");
-    let xml_string = fs::read_to_string("/tmp/sms.xml")?;
-    // xml_string = xml_string.replace("\r\n", "\n");
-
-    // println!("mucking with the string");
-    // // Basically we replace the whole XML header, and add a namespace
-    // // to the first element because it makes minidom happy
-    // let re = Regex::new(r"^(?s).*?<smses ([^>]*)>").unwrap();
-    // let fixed_xml_string = re.replace_all(
-    //     xml_string.as_str(),
-    //     "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n<smses $1 xmlns=\"smses\">",
-    // );
-    // // println!("{:#?}", fixed_xml_string);
+    let xml_string = fs::read_to_string(xml_filename)?;
 
     println!("parsing the xml string");
-    // let root: Element = fixed_xml_string.parse().unwrap();
 
     let mut reader = Reader::from_str(xml_string.as_str());
     reader.trim_text(true);
 
-    // let mut count = 0;
-    // let mut txt = Vec::new();
-    let mut buf = Vec::new();
-
     // The `Reader` does not implement `Iterator` because it outputs borrowed data (`Cow`s)
     loop {
-        // NOTE: this is the generic case when we don't know about the input BufRead.
-        // when the input is a &str or a &[u8], we don't actually need to use another
-        // buffer, we could directly call `reader.read_event()`
-        let event = reader
-            .read_event_into(&mut buf)
-            .unwrap_or_else(|e| panic!("Error at position {}: {:#?}", reader.buffer_position(), e));
+        let event = reader.read_event().unwrap_or_else(|e| {
+            panic!(
+                "Error at file character number {}: {:#?}",
+                reader.buffer_position(),
+                e
+            )
+        });
+
+        // Here we match on all the things we care about:
+        // the event itself, its name if it has one, and our current state
         match (
             event.clone(),
             try_event_name(event).as_ref().map(String::as_ref),
             state.clone(),
         ) {
-            // Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
-            // exits the loop when reaching end of file
             (Event::Eof, _, _) => break,
 
-            // Ok(e) => println!("{:#?}", e),
-
-            //
             (Event::Start(e), Some("mms"), State::Between) => {
                 if let Ok(Some(attr)) = e.try_get_attribute("date") {
                     // println!("{:#?}", attr);
@@ -97,23 +87,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                         state = State::Mms(date_time);
                     }
                 }
-                // if let Ok(Some(attr)) = e.try_get_attribute("readable_date") {
-                //     println!("{:#?}", attr);
-                // }
+            }
 
-                // for attr in e.attributes() {
-                //     let attr = attr.unwrap();
-                //     println!("{:#?} -- {:#?}", attr.key, attr.unescape_value())
-                // }
-                //     println!(
-                //     "attributes values: {:?}",
-                //     e.attributes() //.map(|a| a.unwrap().value).collect::<Vec<_>>()
-                // ),
-            }
             (Event::Start(_), Some("mms"), State::Mms(_)) => {
-                // We should only end up here if the state is *not* Between, which is bad
-                panic!("found an mms when we were already processing one??")
+                panic!("found an mms start tag when we were already processing an mms??")
             }
+
+            // MMS attachments are represented in the XML as "parts";
+            // we don't about the "parts" tag, only the "part" tags underneath
             (Event::Empty(e), Some("part"), State::Mms(date_time)) => {
                 if date_time < date_since {
                     println!("date {} is too old", date_time.format("%Y-%d-%m %H:%M %Z"));
@@ -133,10 +114,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 );
                                 println!("Writing {}", filename);
                                 fs::write(filename, binary).expect("can't write the file :(");
-                                // println!("{:#?} -- {}", ct, date_time.format("%Y-%d-%m %H:%M %Z"));
-                                // println!("{:#?}", orig_filename);
-                                // println!("{:#?}", e);
-                                // println!("{:#?}", binary);
                             } else {
                                 panic!("Image with no data ('data' attr): {:#?}", e)
                             }
@@ -155,19 +132,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             (Event::End(_), Some("mms"), State::Between) => {
                 panic!("found an mms end when not inside one")
             }
-            // Ok(Event::Text(e)) => txt.push(e.unescape().unwrap().into_owned()),
-
-            // There are several other `Event`s we do not consider here
             _ => (),
         }
-        // if we don't keep a borrow elsewhere, we can clear the buffer to keep memory usage low
-        buf.clear();
     }
-
-    // println!("processing elements");
-    // for child in root.children() {
-    //     println!("{:#?}", child);
-    // }
 
     Ok(())
 }
