@@ -1,4 +1,4 @@
-Processes the output of Android app "SMS Backup & Restore", extracting images.
+Processes the output of Android app "SMS Backup & Restore", extracting images (and videos and vcards).
 
 The app, to be specific, is https://play.google.com/store/apps/details?id=com.riteshsahu.SMSBackupRestore
 

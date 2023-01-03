@@ -100,16 +100,30 @@ fn main() -> Result<(), Box<dyn Error>> {
                     println!("date {} is too old", date_time.format("%Y-%d-%m %H:%M %Z"));
                 } else if let Ok(Some(ct)) = e.try_get_attribute("ct") {
                     let ct = ct.unescape_value()?.to_string();
-                    if ct.starts_with("image/") {
+                    // println!("ct: {}", ct);
+                    if ct.starts_with("image/") || ct.starts_with("video/") || ct == "text/x-vcard"
+                    {
                         if let Ok(Some(orig_filename)) = e.try_get_attribute("cl") {
                             let orig_filename = orig_filename.unescape_value()?.to_string();
                             if let Ok(Some(data)) = e.try_get_attribute("data") {
                                 let data = data.unescape_value()?.to_string();
                                 let binary = decode(data).unwrap();
 
+                                let ftype: &str;
+                                if ct.starts_with("image/") {
+                                    ftype = "IMG"
+                                } else if ct.starts_with("video/") {
+                                    ftype = "VIDEO"
+                                } else if ct == "text/x-vcard" {
+                                    ftype = "VCARD"
+                                } else {
+                                    panic!("unknown type {}", ct)
+                                }
+
                                 let filename = format!(
-                                    "output/{}--IMG_MMS_{}",
+                                    "output/{}--{}_MMS_{}",
                                     date_time.format("%Y-%m-%d_%H-%M-%S"),
+                                    ftype,
                                     orig_filename
                                 );
                                 println!("Writing {}", filename);
