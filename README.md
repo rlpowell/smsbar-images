@@ -1,4 +1,7 @@
-Processes the output of Android app "SMS Backup & Restore", extracting images (and videos and vcards).
+Processes the output of Android app "SMS Backup & Restore", extracting images
+(and videos and vcards).  It's all podman/docker based; my lunvarvim_rust image
+is used as a basis ( see https://github.com/rlpowell/lunarvim_rust ), but
+honestly any image with a working Rust should do fine.
 
 The app, to be specific, is https://play.google.com/store/apps/details?id=com.riteshsahu.SMSBackupRestore
 

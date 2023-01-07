@@ -11,6 +11,9 @@ trap '__error_trapper "${LINENO}/${BASH_LINENO}" "$?" "$BASH_COMMAND"' ERR
 
 set -euE -o pipefail
 
+# Cron's path tends to suck
+export PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:$HOME/bin:$HOME/.local/bin
+
 (
   cd ~/src/lunarvim_rust/
   podman build -t lunarvim_rust .

@@ -2,6 +2,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use chrono_tz::{Tz, US::Pacific};
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
+use slug::slugify;
 
 use base64::decode;
 
@@ -13,7 +14,7 @@ use std::str;
 #[derive(PartialEq, Clone)]
 enum State {
     Between,
-    Mms(DateTime<Tz>),
+    Mms(DateTime<Tz>, String),
 }
 
 fn try_event_name(event: Event) -> Option<String> {
@@ -80,22 +81,29 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if let Ok(Some(attr)) = e.try_get_attribute("date") {
                     // println!("{:#?}", attr);
                     if let Ok(date_i64) = attr.unescape_value()?.parse::<i64>() {
-                        // println!("{:#?}", date_i64);
-                        let date_time = Pacific.timestamp_millis_opt(date_i64).unwrap();
-                        // println!("{}", date_time.format("%Y-%d-%m %H:%M %Z"));
+                        if let Ok(Some(contact_name)) = e.try_get_attribute("contact_name") {
+                            let contact_name = contact_name.unescape_value()?.to_string();
+                            // println!("{:#?}", date_i64);
+                            let date_time = Pacific.timestamp_millis_opt(date_i64).unwrap();
+                            // println!("{}", date_time.format("%Y-%d-%m %H:%M %Z"));
 
-                        state = State::Mms(date_time);
+                            state = State::Mms(date_time, contact_name);
+                        } else {
+                            panic!("MMS with no contact_name ('contact_name' attr): {:#?}", e)
+                        }
+                    } else {
+                        panic!("MMS with no date ('date' attr): {:#?}", e)
                     }
                 }
             }
 
-            (Event::Start(_), Some("mms"), State::Mms(_)) => {
+            (Event::Start(_), Some("mms"), State::Mms(_, _)) => {
                 panic!("found an mms start tag when we were already processing an mms??")
             }
 
             // MMS attachments are represented in the XML as "parts";
             // we don't about the "parts" tag, only the "part" tags underneath
-            (Event::Empty(e), Some("part"), State::Mms(date_time)) => {
+            (Event::Empty(e), Some("part"), State::Mms(date_time, contact_name)) => {
                 if date_time < date_since {
                     println!("date {} is too old", date_time.format("%Y-%d-%m %H:%M %Z"));
                 } else if let Ok(Some(ct)) = e.try_get_attribute("ct") {
@@ -121,9 +129,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 }
 
                                 let filename = format!(
-                                    "output/{}--{}_MMS_{}",
+                                    "output/{}--{}_MMS_{}_{}",
                                     date_time.format("%Y-%m-%d_%H-%M-%S"),
                                     ftype,
+                                    slugify(contact_name),
                                     orig_filename
                                 );
                                 println!("Writing {}", filename);
@@ -140,7 +149,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             (Event::Empty(_), Some("part"), State::Between) => {
                 panic!("found a part when not inside an mms")
             }
-            (Event::End(_), Some("mms"), State::Mms(_)) => {
+            (Event::End(_), Some("mms"), State::Mms(_, _)) => {
                 state = State::Between;
             }
             (Event::End(_), Some("mms"), State::Between) => {
